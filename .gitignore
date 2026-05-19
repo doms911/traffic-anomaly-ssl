@@ -6,3 +6,4 @@ data/
 outputs/
 wandb/
 .DS_Store
+.vscode/
