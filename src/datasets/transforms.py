@@ -1,9 +1,10 @@
 """Synchronized augmentations for semantic segmentation (image + mask)."""
 import random
-from typing import Tuple
+from typing import Tuple, Optional
 
 import torch
 import torchvision.transforms.functional as TF
+import numpy as np
 from PIL import Image
 
 
@@ -26,7 +27,7 @@ class SegmentationTransforms:
         crop_size: Tuple[int, int] = (768, 768),
         scale_range: Tuple[float, float] = (0.5, 2.0),
         horizontal_flip_prob: float = 0.5,
-        color_jitter: dict = None,
+        color_jitter: Optional[dict] = None,
         ignore_index: int = 255,
     ):
         self.split = split
@@ -42,35 +43,35 @@ class SegmentationTransforms:
         self, image: Image.Image, mask: Image.Image
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.split == "train":
-            image, mask = self._train_transforms(image, mask)
+            image_pil, mask_pil = self._train_transforms(image, mask)
         else:
-            image, mask = self._val_transforms(image, mask)
+            image_pil, mask_pil = self._val_transforms(image, mask)
 
-        # Image: ToTensor + Normalize
-        image = TF.to_tensor(image)
-        image = TF.normalize(image, mean=IMAGENET_MEAN, std=IMAGENET_STD)
+        # PIL → Tensor + Normalize
+        image_tensor = TF.to_tensor(image_pil)
+        image_tensor = TF.normalize(image_tensor, mean=IMAGENET_MEAN, std=IMAGENET_STD)
 
         # Mask: long tensor of class indices
-        mask = torch.as_tensor(
-            list(mask.getdata()), dtype=torch.long
-        ).reshape(mask.size[1], mask.size[0])
+        mask_tensor = torch.from_numpy(np.array(mask_pil, dtype=np.int64))
 
-        return image, mask
+        return image_tensor, mask_tensor
 
-    def _train_transforms(self, image, mask):
+    def _train_transforms(
+        self, image: Image.Image, mask: Image.Image
+    ) -> Tuple[Image.Image, Image.Image]:
         # Random scale
         scale = random.uniform(*self.scale_range)
         w, h = image.size
         new_w, new_h = int(w * scale), int(h * scale)
-        image = image.resize((new_w, new_h), Image.BILINEAR)
-        mask = mask.resize((new_w, new_h), Image.NEAREST)
+        image = image.resize((new_w, new_h), Image.Resampling.BILINEAR)
+        mask = mask.resize((new_w, new_h), Image.Resampling.NEAREST)
 
         # Pad if smaller than crop
         pad_w = max(self.crop_size[1] - new_w, 0)
         pad_h = max(self.crop_size[0] - new_h, 0)
         if pad_w > 0 or pad_h > 0:
-            image = TF.pad(image, (0, 0, pad_w, pad_h), fill=0)
-            mask = TF.pad(mask, (0, 0, pad_w, pad_h), fill=self.ignore_index)
+            image = TF.pad(image, [0, 0, pad_w, pad_h], fill=0)  # type: ignore[assignment]
+            mask = TF.pad(mask, [0, 0, pad_w, pad_h], fill=self.ignore_index)  # type: ignore[assignment]
 
         # Random crop
         w, h = image.size
@@ -81,16 +82,21 @@ class SegmentationTransforms:
 
         # Random horizontal flip
         if random.random() < self.horizontal_flip_prob:
-            image = TF.hflip(image)
-            mask = TF.hflip(mask)
+            image = TF.hflip(image) # type: ignore[assignment]
+            mask = TF.hflip(mask) # type: ignore[assignment]
 
         # Color jitter (image only)
-        image = TF.adjust_brightness(image, 1 + random.uniform(-self.color_jitter["brightness"], self.color_jitter["brightness"]))
-        image = TF.adjust_contrast(image, 1 + random.uniform(-self.color_jitter["contrast"], self.color_jitter["contrast"]))
-        image = TF.adjust_saturation(image, 1 + random.uniform(-self.color_jitter["saturation"], self.color_jitter["saturation"]))
+        brightness = 1 + random.uniform(-self.color_jitter["brightness"], self.color_jitter["brightness"])
+        contrast = 1 + random.uniform(-self.color_jitter["contrast"], self.color_jitter["contrast"])
+        saturation = 1 + random.uniform(-self.color_jitter["saturation"], self.color_jitter["saturation"])
+        image = TF.adjust_brightness(image, brightness) # type: ignore[assignment]
+        image = TF.adjust_contrast(image, contrast) # type: ignore[assignment]
+        image = TF.adjust_saturation(image, saturation) # type: ignore[assignment]
 
         return image, mask
 
-    def _val_transforms(self, image, mask):
-        # Val: no augmentations, just convert to tensor
+    def _val_transforms(
+        self, image: Image.Image, mask: Image.Image
+    ) -> Tuple[Image.Image, Image.Image]:
+        # Val: no augmentations, return as-is
         return image, mask
