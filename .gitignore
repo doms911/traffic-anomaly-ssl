@@ -7,3 +7,13 @@ outputs/
 wandb/
 .DS_Store
 .vscode/
+checkpoints/
+logs/
+*.pth
+*.pt
+*.ckpt
+runs/
+wandb/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
