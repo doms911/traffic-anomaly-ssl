@@ -2,6 +2,8 @@
 import torch
 import numpy as np
 
+from sklearn.metrics import roc_auc_score, average_precision_score
+
 
 class ConfusionMatrix:
     """
@@ -66,3 +68,88 @@ class ConfusionMatrix:
     def reset(self) -> None:
         """Reset confusion matrix to zeros."""
         self.matrix.zero_()
+        
+        
+# ----- Anomaly detection metrics (AUPRC, AUROC, FPR95) -----        
+def compute_anomaly_metrics(
+    scores: np.ndarray,
+    labels: np.ndarray,
+    ignore_value: int = 255,
+) -> dict:
+    """
+    Compute pixel-level anomaly detection metrics.
+
+    Args:
+        scores: (N,) flattened anomaly scores (higher = more anomalous).
+        labels: (N,) flattened binary labels (0 = normal, 1 = anomaly, 255 = ignore).
+        ignore_value: label value to exclude from evaluation.
+
+    Returns:
+        dict with keys: 'auprc', 'auroc', 'fpr95', 'num_anomaly', 'num_normal'.
+    """
+    # Filter out ignore pixels
+    valid = labels != ignore_value
+    scores = scores[valid]
+    labels = labels[valid]
+
+    # Ensure binary labels
+    labels = (labels == 1).astype(np.int32)
+
+    num_anomaly = int(labels.sum())
+    num_normal = int(len(labels) - num_anomaly)
+
+    if num_anomaly == 0 or num_normal == 0:
+        return {
+            "auprc": 0.0, "auroc": 0.0, "fpr95": 1.0,
+            "num_anomaly": num_anomaly, "num_normal": num_normal,
+        }
+
+    # AUPRC (Average Precision)
+    auprc = average_precision_score(labels, scores)
+
+    # AUROC
+    auroc = roc_auc_score(labels, scores)
+
+    # FPR at 95% TPR
+    fpr95 = compute_fpr_at_tpr(scores, labels, target_tpr=0.95)
+
+    return {
+        "auprc": float(auprc),
+        "auroc": float(auroc),
+        "fpr95": float(fpr95),
+        "num_anomaly": num_anomaly,
+        "num_normal": num_normal,
+    }
+
+
+def compute_fpr_at_tpr(
+    scores: np.ndarray, labels: np.ndarray, target_tpr: float = 0.95
+) -> float:
+    """
+    Compute False Positive Rate at a given True Positive Rate.
+
+    FPR95 is standard metric for OOD/anomaly detection:
+    "When the model catches 95% of anomalies, what fraction of
+    normal pixels does it incorrectly flag?"
+
+    Lower is better. Random predictor gives FPR95 = 0.95.
+    """
+    # Sort by score descending (highest anomaly score first)
+    order = np.argsort(-scores)
+    labels_sorted = labels[order]
+
+    # Cumulative true positives and false positives
+    tp = np.cumsum(labels_sorted == 1)
+    fp = np.cumsum(labels_sorted == 0)
+
+    num_pos = (labels == 1).sum()
+    num_neg = (labels == 0).sum()
+
+    tpr = tp / num_pos
+    fpr = fp / num_neg
+
+    # Find first threshold where TPR >= target
+    idx = np.searchsorted(tpr, target_tpr)
+    if idx >= len(fpr):
+        return 1.0
+    return float(fpr[idx])
