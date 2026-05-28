@@ -1,0 +1,29 @@
+experiment_name: moco_smoke
+description: "Smoke test with ImageNet init + GroupNorm"
+
+model:
+  encoder: resnet50
+  proj_dim: 128
+  queue_size: 8192          # umjereno
+  momentum: 0.99            # malo manje agresivno
+  temperature: 0.2
+
+dataset:
+  mode: image
+  num_workers: 16
+  pin_memory: true
+
+augmentations:
+  crop_size: 224
+
+training:
+  batch_size: 256
+  num_epochs: 5
+  learning_rate: 0.005       # nižji nego prije
+  sgd_momentum: 0.9
+  weight_decay: 0.0001
+  mixed_precision: true
+
+logging:
+  log_every_n_steps: 20
+  save_every_n_epochs: 1
