@@ -2,6 +2,7 @@
 import argparse
 import sys
 from pathlib import Path
+from tabnanny import check
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch
@@ -20,6 +21,7 @@ def main():
     args = parser.parse_args()
 
     print(f"Loading: {args.checkpoint}")
+    
     model = build_deeplabv3plus(
         encoder_name="resnet50",
         encoder_weights=None,

@@ -82,7 +82,7 @@ def train(cfg: Config) -> None:
     lr=cfg.training.learning_rate,
     momentum=cfg.training.sgd_momentum,
     weight_decay=cfg.training.weight_decay,
-)
+    )
 
     # Mixed precision
     use_amp = cfg.training.mixed_precision

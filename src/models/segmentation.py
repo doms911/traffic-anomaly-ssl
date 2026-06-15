@@ -42,47 +42,53 @@ def build_deeplabv3plus(
 
 def load_ssl_encoder_weights(model: nn.Module, checkpoint_path: str) -> None:
     """
-    Load SSL pretrained weights into model.encoder.
+    Load SSL pretrained backbone weights into model.encoder.
 
-    Handles common SSL checkpoint formats (MoCo's encoder_q prefix, etc.).
+    Expects a Lightly MoCo checkpoint with keys like 'backbone.encoder.X'.
+    Skips momentum encoder and projection heads (SSL-only components).
     """
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    
-    # Different SSL frameworks have different checkpoint structures.
-    if "state_dict" in checkpoint:
+
+    if "model_state" in checkpoint:
+        state_dict = checkpoint["model_state"]
+    elif "state_dict" in checkpoint:
         state_dict = checkpoint["state_dict"]
-    elif "model" in checkpoint:
-        state_dict = checkpoint["model"]
     else:
-        state_dict = checkpoint  # assume checkpoint is directly the state_dict
-    
+        state_dict = checkpoint
+
+    # We only want the QUERY backbone: keys starting with 'backbone.encoder.'
+    # Everything else (backbone_momentum, projection_head*) is SSL-only, skip it.
     cleaned = {}
-    prefixes_to_strip = ["module.encoder_q.", "encoder_q.", 
-                         "module.encoder.", "encoder.",
-                         "module.backbone.", "backbone.",
-                         "module."]  # common patterns
-    
+    prefix = "backbone.encoder."
     for k, v in state_dict.items():
-        new_key = k
-        for prefix in prefixes_to_strip:
-            if new_key.startswith(prefix):
-                new_key = new_key[len(prefix):]
-                break
-            
-        # ignore fc/projection head (used only in SSL phase)
-        if new_key.startswith("fc.") or new_key.startswith("projector."):
-            continue
-        
-        cleaned[new_key] = v
-        
-    missing, unexpected = model.encoder.load_state_dict(cleaned, strict=False)
+        if k.startswith(prefix):
+            new_key = k[len(prefix):]   # 'backbone.encoder.conv1.weight' -> 'conv1.weight'
+            cleaned[new_key] = v
+
+    if len(cleaned) == 0:
+        raise RuntimeError(
+            f"No keys with prefix '{prefix}' found in checkpoint. "
+            f"Available prefixes: {set('.'.join(k.split('.')[:2]) for k in state_dict)}"
+        )
+
+   # SMP's ResNetEncoder.load_state_dict returns None, so verify manually
+    encoder_keys = set(model.encoder.state_dict().keys())
+    cleaned_keys = set(cleaned.keys())
+
+    matched = cleaned_keys & encoder_keys
+    missing = encoder_keys - cleaned_keys
+    unexpected = cleaned_keys - encoder_keys
+
+    model.encoder.load_state_dict(cleaned, strict=False)
+
     print(f"Loaded SSL encoder weights from {checkpoint_path}")
-    print(f"    Missing keys (not loaded): {missing}")
-    print(f"    Unexpected keys (ignored): {unexpected}")
-    if len(missing) > 0:
-        print(f"    First missing: {missing[:3]}")
-    if len(unexpected) > 0:
-        print(f"    First unexpected: {unexpected[:3]}")
+    print(f"    Matched keys: {len(matched)} / {len(encoder_keys)}")
+    print(f"    Missing (in SMP, not in ckpt): {len(missing)}")
+    print(f"    Unexpected (in ckpt, not in SMP): {len(unexpected)}")
+    if missing:
+        print(f"    First missing: {sorted(missing)[:3]}")
+    if unexpected:
+        print(f"    First unexpected: {sorted(unexpected)[:3]}")
         
 def count_parameters(model: nn.Module) -> int:
     """Count trainable parameters in the model."""
