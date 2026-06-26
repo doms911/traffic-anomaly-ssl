@@ -8,7 +8,6 @@ wandb/
 .DS_Store
 .vscode/
 checkpoints/
-logs/
 *.pth
 *.pt
 *.ckpt
@@ -18,4 +17,3 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 submissions/
-anomalies/
